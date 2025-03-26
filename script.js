@@ -1,77 +1,28 @@
 document.addEventListener('DOMContentLoaded', function () {
+  // Show loading message
+  const loadingMessage = document.createElement('div');
+  loadingMessage.className = 'loading-message';
+  loadingMessage.textContent = 'Loading your saved map...';
+  document.body.appendChild(loadingMessage);
+  loadingMessage.style.display = 'block';
+
   // Set default date to today
   const datePicker = document.getElementById('date-picker');
   const today = new Date();
   datePicker.valueAsDate = today;
 
-  // Windows-optimized print function
+  // Print button functionality
   document.getElementById('print-btn').addEventListener('click', function () {
-    // Windows detection
-    const isWindows = navigator.userAgent.includes('Windows');
-
-    if (isWindows) {
-      // Windows-specific print handling
-      const printWindow = window.open('', '_blank');
-      const htmlContent = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>US Map Print</title>
-                    <style>
-                        body { margin: 0; padding: 0; height: 100vh; }
-                        h1 { 
-                            text-align: center;
-                            font-size: 16pt;
-                            margin: 0.2cm 0;
-                            padding: 0.2cm 0;
-                            background-color: #2980b9;
-                            color: white;
-                        }
-                        #print-map-container { 
-                            width: 100%; 
-                            height: calc(100vh - 1.5cm);
-                        }
-                        svg {
-                            width: 100%;
-                            height: 100%;
-                        }
-                        .state-abbr {
-                            font-size: 10pt;
-                            font-weight: bold;
-                            fill: black;
-                            stroke: white;
-                            stroke-width: 0.5pt;
-                            font-family: Arial;
-                        }
-                        @page {
-                            size: A4 landscape;
-                            margin: 0.5cm;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <h1>Average Temperature by State</h1>
-                    <div id="print-map-container">
-                        ${document.querySelector('#us-map').outerHTML}
-                    </div>
-                    <script>
-                        setTimeout(() => {
-                            window.print();
-                            window.close();
-                        }, 500);
-                    </script>
-                </body>
-                </html>
-            `;
-
-      printWindow.document.open();
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-    } else {
-      // Standard print handling for other OS
-      window.print();
-    }
+    window.print();
   });
+
+  // Debugging button to clear storage
+  document
+    .getElementById('clear-storage')
+    .addEventListener('click', function () {
+      localStorage.removeItem('stateColors');
+      alert('Saved colors cleared! Refresh the page.');
+    });
 
   // Map dimensions
   const width = window.innerWidth;
@@ -146,12 +97,35 @@ document.addEventListener('DOMContentLoaded', function () {
   // Color sequence
   const colors = ['#f0f0f0', '#3498db', '#e74c3c'];
 
+  // Load saved state colors from localStorage
+  const loadStateColors = () => {
+    try {
+      const savedColors = localStorage.getItem('stateColors');
+      return savedColors ? JSON.parse(savedColors) : {};
+    } catch (e) {
+      console.error('Error loading saved colors:', e);
+      return {};
+    }
+  };
+
+  // Save state colors to localStorage
+  const saveStateColors = (stateColors) => {
+    try {
+      localStorage.setItem('stateColors', JSON.stringify(stateColors));
+    } catch (e) {
+      console.error('Error saving colors:', e);
+    }
+  };
+
+  // Initialize state colors
+  let stateColors = loadStateColors();
+
   // Load and draw the US map
-  d3.json('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json').then(
-    function (us) {
+  d3.json('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json')
+    .then(function (us) {
       const states = topojson.feature(us, us.objects.states).features;
 
-      // Draw states
+      // Draw states with saved colors
       svg
         .selectAll('.state')
         .data(states)
@@ -159,14 +133,31 @@ document.addEventListener('DOMContentLoaded', function () {
         .append('path')
         .attr('class', 'state')
         .attr('d', path)
-        .attr('fill', colors[0])
-        .attr('data-color-index', 0)
+        .attr('fill', function (d) {
+          return stateColors[d.properties.name] || colors[0];
+        })
+        .attr('data-color-index', function (d) {
+          const savedColor = stateColors[d.properties.name];
+          if (!savedColor) return 0;
+          return savedColor === colors[1]
+            ? 1
+            : savedColor === colors[2]
+            ? 2
+            : 0;
+        })
         .on('click', function (event, d) {
           const currentIndex = +d3.select(this).attr('data-color-index');
           const nextIndex = (currentIndex + 1) % colors.length;
+          const newColor = colors[nextIndex];
+
+          // Update the display
           d3.select(this)
-            .attr('fill', colors[nextIndex])
+            .attr('fill', newColor)
             .attr('data-color-index', nextIndex);
+
+          // Update and save state colors
+          stateColors[d.properties.name] = newColor;
+          saveStateColors(stateColors);
         });
 
       // Add state abbreviations
@@ -190,8 +181,14 @@ document.addEventListener('DOMContentLoaded', function () {
           }
           return '';
         });
-    }
-  );
+
+      // Hide loading message
+      loadingMessage.style.display = 'none';
+    })
+    .catch((error) => {
+      console.error('Error loading map data:', error);
+      loadingMessage.textContent = 'Error loading map. Please refresh.';
+    });
 
   // Handle window resize
   window.addEventListener('resize', function () {
